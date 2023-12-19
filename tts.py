@@ -1,9 +1,9 @@
 import wave
 import sys
 import json
-import time
-
 from vosk import Model, KaldiRecognizer, SetLogLevel
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+from moviepy.video.tools.subtitles import SubtitlesClip
 
 # You can set log level to -1 to disable debug messages
 SetLogLevel(0)
@@ -49,8 +49,7 @@ while True:
 
             while i < len(words):
                 chunk = words[i:i + chunk_size]
-                chunk_start = result["result"][i][
-                    "start"]  # Set start time based on the position of the first word in the chunk
+                chunk_start = result["result"][i]["start"]  # Set start time based on the position of the first word in the chunk
 
                 # Ensure the last chunk has at least min_chunk_size words
                 if len(chunk) < min_chunk_size and len(chunks) > 0:
@@ -63,23 +62,42 @@ while True:
             # Add chunks to the resultsList
             for chunk_start, chunk_words in chunks:
                 chunk_text = ' '.join(chunk_words)
-                resultsList.append([chunk_start, chunk_text])
+                resultsList.append((chunk_text, chunk_start))
         else:
-            resultsList.append([result["result"][0]["start"], result["text"]])
-
-        # resultsList.append([result["result"][0]["start"], result["text"]])
+            resultsList.append((result["text"], result["result"][0]["start"]))
 
 final_result = json.loads(rec.FinalResult())
-resultsList.append([final_result["result"][0]["start"], final_result["text"]])
+resultsList.append((final_result["text"], final_result["result"][0]["start"]))
 
 print(resultsList)
 
+for count, i in enumerate(resultsList):
+    print(f'{count}: {i}')
 
-lastTime = 0
-temp = f''
-for i in resultsList:
-    time.sleep(i[0] - lastTime)
+# Modify the structure of resultsList to match the expected format
+subtitles_list = [(start, start + len(chunk.split()) / wf.getframerate(), chunk) for chunk, start in resultsList]
 
-    print(i[1])
+# Function to generate subtitles at specific time intervals
+def generate_subtitles(subtitles_list):
+    return SubtitlesClip(subtitles_list, make_texts)
 
-    lastTime = i[0]
+# Function to create text clips
+def make_texts(subtitles, video):
+    return [(subtitle[0], subtitle[1], TextClip(subtitle[2], fontsize=24, color='white').set_pos('center')) for subtitle in subtitles]
+
+# Function to add subtitles to a video
+def add_subtitles(video_path, subtitles_list, output_path):
+    video_clip = VideoFileClip(video_path)
+    subtitles_clip = generate_subtitles(subtitles_list)
+
+    # Overlay subtitles on the video
+    video_with_subtitles = CompositeVideoClip([video_clip, subtitles_clip.set_duration(video_clip.duration)])
+
+    # Write the result to a file
+    video_with_subtitles.write_videofile(output_path, codec='libx264', audio_codec='aac')
+
+# Example usage
+video_path = 'Video11.mp4'
+output_path = 'short0.mp4'
+
+add_subtitles(video_path, subtitles_list, output_path)
