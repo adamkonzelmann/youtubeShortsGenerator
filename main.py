@@ -55,7 +55,7 @@ for count, url in enumerate(urls):
                 json_data = json.loads(response.text)
                 text = json_data[0]["data"]["children"][0]["data"]["selftext"]
                 title = json_data[0]["data"]["children"][0]["data"]["title"]
-                print(count + ": " + title)
+                print(f'{count}: {title}')
 
                 filePath = f'{folderName}/post{count}.txt'
                 with open(filePath, 'w') as file:
