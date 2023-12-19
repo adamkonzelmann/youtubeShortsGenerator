@@ -1,250 +1,85 @@
-import requests, base64, random, argparse, os, playsound, time, re, textwrap
+import wave
+import sys
+import json
+import time
 
-# https://twitter.com/scanlime/status/1512598559769702406
+from vosk import Model, KaldiRecognizer, SetLogLevel
 
-voices = [
-    # DISNEY VOICES
-    'en_us_ghostface',  # Ghost Face
-    'en_us_chewbacca',  # Chewbacca
-    'en_us_c3po',  # C3PO
-    'en_us_stitch',  # Stitch
-    'en_us_stormtrooper',  # Stormtrooper
-    'en_us_rocket',  # Rocket
+# You can set log level to -1 to disable debug messages
+SetLogLevel(0)
 
-    # ENGLISH VOICES
-    'en_au_001',  # English AU - Female
-    'en_au_002',  # English AU - Male
-    'en_uk_001',  # English UK - Male 1
-    'en_uk_003',  # English UK - Male 2
-    'en_us_001',  # English US - Female (Int. 1)
-    'en_us_002',  # English US - Female (Int. 2)
-    'en_us_006',  # English US - Male 1
-    'en_us_007',  # English US - Male 2
-    'en_us_009',  # English US - Male 3
-    'en_us_010',  # English US - Male 4
+# wf = wave.open(sys.argv[1], "rb")
+wf = wave.open("post0.wav", "rb")
+if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getcomptype() != "NONE":
+    print("Audio file must be WAV format mono PCM.")
+    sys.exit(1)
 
-    # EUROPE VOICES
-    'fr_001',  # French - Male 1
-    'fr_002',  # French - Male 2
-    'de_001',  # German - Female
-    'de_002',  # German - Male
-    'es_002',  # Spanish - Male
+model = Model(lang="en-us")
 
-    # AMERICA VOICES
-    'es_mx_002',  # Spanish MX - Male
-    'br_001',  # Portuguese BR - Female 1
-    'br_003',  # Portuguese BR - Female 2
-    'br_004',  # Portuguese BR - Female 3
-    'br_005',  # Portuguese BR - Male
+# You can also init model by name or with a folder path
+# model = Model(model_name="vosk-model-en-us-0.21")
+# model = Model("models/en")
 
-    # ASIA VOICES
-    'id_001',  # Indonesian - Female
-    'jp_001',  # Japanese - Female 1
-    'jp_003',  # Japanese - Female 2
-    'jp_005',  # Japanese - Female 3
-    'jp_006',  # Japanese - Male
-    'kr_002',  # Korean - Male 1
-    'kr_003',  # Korean - Female
-    'kr_004',  # Korean - Male 2
+rec = KaldiRecognizer(model, wf.getframerate())
+rec.SetWords(True)
+rec.SetPartialWords(True)
 
-    # SINGING VOICES
-    'en_female_f08_salut_damour'  # Alto
-    'en_male_m03_lobby'  # Tenor
-    'en_female_f08_warmy_breeze'  # Warmy Breeze
-    'en_male_m03_sunshine_soon'  # Sunshine Soon
+resultsList = []
 
-    # OTHER
-    'en_male_narration'  # narrator
-    'en_male_funny'  # wacky
-    'en_female_emotional'  # peaceful
-]
+while True:
+    data = wf.readframes(4000)
+    if len(data) == 0:
+        break
+    if rec.AcceptWaveform(data):
+        result = json.loads(rec.Result())
+        print("Result:", result["text"])
 
+        wordCount = len(result["result"])
 
-def tts(session_id: str, text_speaker: str = "en_us_002", req_text: str = "TikTok Text To Speech",
-        filename: str = 'voice.mp3', play: bool = False):
-    req_text = req_text.replace("+", "plus")
-    req_text = req_text.replace(" ", "+")
-    req_text = req_text.replace("&", "and")
+        if wordCount > 12:
+            text = result["text"]
+            words = text.split()
+            start = result["result"][0]["start"]
 
-    headers = {
-        'User-Agent': 'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 7.1.2; es_ES; SM-G988N; Build/NRD90M;tt-ok/3.12.13.1)',
-        'Cookie': f'sessionid={session_id}'
-    }
-    url = f"https://api16-normal-useast5.us.tiktokv.com/media/api/text/speech/invoke/?text_speaker={text_speaker}&req_text={req_text}&speaker_map_type=0&aid=1233"
-    r = requests.post(url, headers=headers)
+            # Split into chunks of max 12 words with a minimum length of 6 words
+            chunk_size = 12
+            min_chunk_size = 6
+            chunks = []
+            i = 0
 
-    if r.json()["message"] == "Couldn't load speech. Try again.":
-        output_data = {"status": "Session ID is invalid", "status_code": 5}
-        print(output_data)
-        return output_data
+            while i < len(words):
+                chunk = words[i:i + chunk_size]
+                chunk_start = result["result"][i][
+                    "start"]  # Set start time based on the position of the first word in the chunk
 
-    vstr = [r.json()["data"]["v_str"]][0]
-    msg = [r.json()["message"]][0]
-    scode = [r.json()["status_code"]][0]
-    log = [r.json()["extra"]["log_id"]][0]
+                # Ensure the last chunk has at least min_chunk_size words
+                if len(chunk) < min_chunk_size and len(chunks) > 0:
+                    chunks[-1][1].extend(chunk)  # Extend the existing list in the list
+                else:
+                    chunks.append([chunk_start, chunk])
 
-    dur = [r.json()["data"]["duration"]][0]
-    spkr = [r.json()["data"]["speaker"]][0]
+                i += chunk_size
 
-    b64d = base64.b64decode(vstr)
-
-    with open(filename, "wb") as out:
-        out.write(b64d)
-
-    output_data = {
-        "status": msg.capitalize(),
-        "status_code": scode,
-        "duration": dur,
-        "speaker": spkr,
-        "log": log
-    }
-
-    print(output_data)
-
-    if play is True:
-        playsound.playsound(filename)
-        os.remove(filename)
-
-    return output_data
-
-
-def tts_batch(session_id: str, text_speaker: str = 'en_us_002', req_text: str = 'TikTok Text to Speech',
-              filename: str = 'voice.mp3'):
-    req_text = req_text.replace("+", "plus")
-    req_text = req_text.replace(" ", "+")
-    req_text = req_text.replace("&", "and")
-
-    headers = {
-        'User-Agent': 'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 7.1.2; es_ES; SM-G988N; Build/NRD90M;tt-ok/3.12.13.1)',
-        'Cookie': f'sessionid={session_id}'
-    }
-    url = f"https://api16-normal-useast5.us.tiktokv.com/media/api/text/speech/invoke/?text_speaker={text_speaker}&req_text={req_text}&speaker_map_type=0&aid=1233"
-
-    r = requests.post(url, headers=headers)
-
-    if r.json()["message"] == "Couldn't load speech. Try again.":
-        output_data = {"status": "Session ID is invalid", "status_code": 5}
-        print(output_data)
-        return output_data
-
-    vstr = [r.json()["data"]["v_str"]][0]
-    msg = [r.json()["message"]][0]
-    scode = [r.json()["status_code"]][0]
-    log = [r.json()["extra"]["log_id"]][0]
-
-    dur = [r.json()["data"]["duration"]][0]
-    spkr = [r.json()["data"]["speaker"]][0]
-
-    b64d = base64.b64decode(vstr)
-
-    with open(filename, "wb") as out:
-        out.write(b64d)
-
-    output_data = {
-        "status": msg.capitalize(),
-        "status_code": scode,
-        "duration": dur,
-        "speaker": spkr,
-        "log": log
-    }
-
-    print(output_data)
-
-    return output_data
-
-
-def batch_create(filename: str = 'voice.mp3'):
-    out = open(filename, 'wb')
-
-    def sorted_alphanumeric(data):
-        convert = lambda text: int(text) if text.isdigit() else text.lower()
-        alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
-        return sorted(data, key=alphanum_key)
-
-    for item in sorted_alphanumeric(os.listdir('./batch/')):
-        filestuff = open('./batch/' + item, 'rb').read()
-        out.write(filestuff)
-
-    out.close()
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Simple Python script to interact with the TikTok TTS API")
-    parser.add_argument("-v", "--voice", help="the code of the desired voice")
-    parser.add_argument("-t", "--text", help="the text to be read")
-    parser.add_argument("-s", "--session", help="account session id")
-    parser.add_argument("-f", "--file", help="use this if you wanna use 'text.txt'")
-    parser.add_argument("-n", "--name", help="The name for the output file (.mp3)")
-    parser.add_argument("-p", "--play", action='store_true', help="use this if you want to play your output")
-    args = parser.parse_args()
-
-    text_speaker = args.voice
-
-    if args.file is not None:
-        req_text = open(args.file, 'r', errors='ignore', encoding='utf-8').read()
-    else:
-        if args.text == None:
-            req_text = 'TikTok Text To Speech'
-            print('You need to have one form of text! (See README.md)')
+            # Add chunks to the resultsList
+            for chunk_start, chunk_words in chunks:
+                chunk_text = ' '.join(chunk_words)
+                resultsList.append([chunk_start, chunk_text])
         else:
-            req_text = args.text
+            resultsList.append([result["result"][0]["start"], result["text"]])
 
-    if args.play is not None:
-        play = args.play
+        # resultsList.append([result["result"][0]["start"], result["text"]])
 
-    if args.voice == None:
-        text_speaker = 'en_us_002'
-        print('You need to have a voice! (See README.md)')
+final_result = json.loads(rec.FinalResult())
+resultsList.append([final_result["result"][0]["start"], final_result["text"]])
 
-    if text_speaker == "random":
-        text_speaker = randomvoice()
-
-    if args.name is not None:
-        filename = args.name
-    else:
-        filename = 'voice.mp3'
-
-    if args.session is None:
-        print('FATAL: You need to have a TikTok session ID!')
-        exit(1)
-
-    if args.file is not None:
-        chunk_size = 200
-        textlist = textwrap.wrap(req_text, width=chunk_size, break_long_words=True, break_on_hyphens=False)
-
-        os.makedirs('./batch/')
-
-        for i, item in enumerate(textlist):
-            tts_batch(args.session, text_speaker, item, f'./batch/{i}.mp3')
-
-        batch_create(filename)
-
-        for item in os.listdir('./batch/'):
-            os.remove('./batch/' + item)
-
-        os.removedirs('./batch/')
-
-        return
-
-    tts(args.session, text_speaker, req_text, filename, play)
+print(resultsList)
 
 
-def randomvoice():
-    count = random.randint(0, len(voices))
-    text_speaker = voices[count]
+lastTime = 0
+temp = f''
+for i in resultsList:
+    time.sleep(i[0] - lastTime)
 
-    return text_speaker
+    print(i[1])
 
-
-def sampler():
-    for item in voices:
-        text_speaker = item
-        filename = item
-        print(item)
-        req_text = 'TikTok Text To Speech Sample'
-        tts(text_speaker, req_text, filename)
-
-
-
-if __name__ == "__main__":
-    main()
+    lastTime = i[0]
