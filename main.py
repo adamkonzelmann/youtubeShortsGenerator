@@ -17,7 +17,7 @@ SCROLL_PAUSE_TIME = 2
 # Get scroll height
 last_height = driver.execute_script("return document.body.scrollHeight")
 
-for x in range(0,20):
+for x in range(0,3):
     # Scroll down to bottom
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
